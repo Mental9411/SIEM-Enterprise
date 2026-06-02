@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+.env.*
+.vercel/
+siem_v2.db
+siem_v2.db-shm
+siem_v2.db-wal
