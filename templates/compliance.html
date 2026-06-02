@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Compliance — SIEM Enterprise{% endblock %}
+{% block page_title %}Compliance & Governance{% endblock %}
+
+{% block content %}
+<div class="stats-grid mb-24" id="complianceKPIs">
+    <div class="stat-card" style="--accent-color:var(--accent-green)">
+        <div class="stat-icon" style="background:rgba(0,255,163,0.15); color:var(--accent-green)"><i class="fas fa-shield-check"></i></div>
+        <div class="stat-label">PCI DSS</div>
+        <div class="stat-value" id="kpi-pci">—%</div>
+        <div class="stat-sub">Payment Card Security</div>
+    </div>
+    <div class="stat-card" style="--accent-color:var(--accent-cyan)">
+        <div class="stat-icon" style="background:rgba(0,212,255,0.15); color:var(--accent-cyan)"><i class="fas fa-certificate"></i></div>
+        <div class="stat-label">SOC 2 Type II</div>
+        <div class="stat-value" id="kpi-soc2">—%</div>
+        <div class="stat-sub">Service Org Controls</div>
+    </div>
+    <div class="stat-card" style="--accent-color:var(--accent-purple)">
+        <div class="stat-icon" style="background:rgba(168,85,247,0.15); color:var(--accent-purple)"><i class="fas fa-globe"></i></div>
+        <div class="stat-label">ISO 27001</div>
+        <div class="stat-value" id="kpi-iso">—%</div>
+        <div class="stat-sub">Information Security</div>
+    </div>
+    <div class="stat-card" style="--accent-color:var(--accent-yellow)">
+        <div class="stat-icon" style="background:rgba(255,214,10,0.15); color:var(--accent-yellow)"><i class="fas fa-landmark"></i></div>
+        <div class="stat-label">NIST CSF</div>
+        <div class="stat-value" id="kpi-nist">—%</div>
+        <div class="stat-sub">Cybersecurity Framework</div>
+    </div>
+</div>
+
+<div id="frameworksGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:20px"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function fetchCompliance() {
+    const res = await fetch('/api/compliance');
+    const data = await res.json();
+    const ids = ['pci','soc2','iso','nist'];
+    data.frameworks.forEach((f,i) => {
+        const el = document.getElementById(`kpi-${ids[i]}`);
+        if (el) el.textContent = f.score + '%';
+    });
+    const scoreColor = (s) => s >= 80 ? 'var(--accent-green)' : s >= 60 ? 'var(--accent-yellow)' : 'var(--accent-red)';
+    document.getElementById('frameworksGrid').innerHTML = data.frameworks.map(f => `
+        <div class="card">
+            <div class="card-header">
+                <i class="fas fa-shield-halved" style="color:${scoreColor(f.score)}"></i>
+                <h3>${f.name}</h3>
+                <span style="margin-left:auto; font-family:'Orbitron',monospace; font-size:1rem; font-weight:700; color:${scoreColor(f.score)}">${f.score}%</span>
+            </div>
+            <div class="card-body">
+                <div class="progress" style="height:8px; margin-bottom:20px">
+                    <div class="progress-bar" style="background:${scoreColor(f.score)}; width:${f.score}%"></div>
+                </div>
+                ${f.controls.map(c => `
+                    <div style="display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--border)">
+                        <i class="fas ${c.status==='compliant' ? 'fa-circle-check' : 'fa-circle-half-stroke'}" style="color:${c.status==='compliant' ? 'var(--accent-green)' : 'var(--accent-yellow)'}"></i>
+                        <div style="flex:1">
+                            <div style="font-size:0.85rem; font-weight:600">${c.name}</div>
+                            <div class="progress" style="margin-top:6px">
+                                <div class="progress-bar" style="background:${scoreColor(c.score)}; width:${c.score}%"></div>
+                            </div>
+                        </div>
+                        <span style="font-family:'JetBrains Mono',monospace; font-size:0.82rem; color:${scoreColor(c.score)}">${c.score}%</span>
+                        <span class="badge ${c.status==='compliant' ? 'badge-low' : 'badge-medium'}">${c.status}</span>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `).join('');
+}
+window.refreshData = fetchCompliance;
+fetchCompliance();
+setInterval(fetchCompliance, 60000);
+</script>
+{% endblock %}

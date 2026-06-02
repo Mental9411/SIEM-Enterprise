@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+{% block title %}Settings — SIEM Enterprise{% endblock %}
+{% block page_title %}Settings & Configuration{% endblock %}
+
+{% block content %}
+<div class="grid-2">
+  <div>
+    <div class="card mb-20">
+      <div class="card-header"><i class="fas fa-sliders" style="color:var(--accent-green)"></i><h3>Detection Rules</h3></div>
+      <div class="card-body" style="padding:0;overflow-x:auto">
+        <table class="data-table" id="rulesTable">
+          <thead><tr><th>Rule</th><th>Severity</th><th>Condition</th><th>Triggered</th><th>Status</th><th>Toggle</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card mb-20">
+      <div class="card-header"><i class="fas fa-flask" style="color:var(--accent-orange)"></i><h3>Manual Event Injection</h3></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div class="form-group" style="margin:0"><label class="form-label">Event Type</label>
+            <select class="form-control" id="injType">
+              <option value="LOGIN_FAILURE">Login Failure</option>
+              <option value="BRUTE_FORCE">Brute Force</option>
+              <option value="MALWARE_DETECTED">Malware Detected</option>
+              <option value="PORT_SCAN">Port Scan</option>
+              <option value="DATA_EXFILTRATION">Data Exfiltration</option>
+              <option value="PRIVILEGE_ESCALATION">Privilege Escalation</option>
+              <option value="SUSPICIOUS_PROCESS">Suspicious Process</option>
+              <option value="LATERAL_MOVEMENT">Lateral Movement</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0"><label class="form-label">Severity</label>
+            <select class="form-control" id="injSev">
+              <option value="info">Info</option><option value="low">Low</option>
+              <option value="medium" selected>Medium</option><option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group"><label class="form-label">Source IP</label>
+          <input class="form-control" id="injIP" value="192.168.1.100"></div>
+        <div class="form-group"><label class="form-label">Custom Message</label>
+          <input class="form-control" id="injMsg" placeholder="Leave blank for auto-generated message"></div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <button class="btn btn-primary" onclick="inject(1)"><i class="fas fa-play"></i> Inject 1</button>
+          <button class="btn btn-outline" onclick="inject(5)"><i class="fas fa-bolt"></i> Inject 5</button>
+          <button class="btn btn-outline" onclick="inject(10)"><i class="fas fa-bolt"></i> Inject 10</button>
+          <span id="injStatus" style="font-size:.8rem;color:var(--text-secondary)"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><i class="fas fa-key" style="color:var(--accent-yellow)"></i><h3>API Keys (External Threat Intel)</h3></div>
+      <div class="card-body">
+        <div class="form-group"><label class="form-label">AbuseIPDB API Key</label>
+          <input class="form-control" type="password" placeholder="Enter key…"></div>
+        <div class="form-group"><label class="form-label">VirusTotal API Key</label>
+          <input class="form-control" type="password" placeholder="Enter key…"></div>
+        <button class="btn btn-primary"><i class="fas fa-save"></i> Save Keys</button>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <!-- Live system metrics updated every 1s via WebSocket -->
+    <div class="card mb-20">
+      <div class="card-header">
+        <i class="fas fa-microchip" style="color:var(--accent-cyan)"></i>
+        <h3>Live System Metrics</h3>
+        <span class="badge badge-low" style="margin-left:auto;animation:pulse-dot 2s infinite">LIVE</span>
+      </div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <div style="background:rgba(0,0,0,.35);border-radius:10px;padding:14px">
+            <div style="font-size:.68rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">CPU</div>
+            <div id="lv-cpu" style="font-family:'Orbitron',monospace;font-size:1.6rem;font-weight:700;color:var(--accent-green)">0%</div>
+            <div class="progress" style="margin-top:8px"><div id="lv-cpu-bar" class="progress-bar" style="background:var(--accent-green);width:0%"></div></div>
+          </div>
+          <div style="background:rgba(0,0,0,.35);border-radius:10px;padding:14px">
+            <div style="font-size:.68rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Memory</div>
+            <div id="lv-mem" style="font-family:'Orbitron',monospace;font-size:1.6rem;font-weight:700;color:var(--accent-cyan)">0%</div>
+            <div class="progress" style="margin-top:8px"><div id="lv-mem-bar" class="progress-bar" style="background:var(--accent-cyan);width:0%"></div></div>
+          </div>
+          <div style="background:rgba(0,0,0,.35);border-radius:10px;padding:14px">
+            <div style="font-size:.68rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Disk</div>
+            <div id="lv-disk" style="font-family:'Orbitron',monospace;font-size:1.6rem;font-weight:700;color:var(--accent-yellow)">0%</div>
+            <div class="progress" style="margin-top:8px"><div id="lv-disk-bar" class="progress-bar" style="background:var(--accent-yellow);width:0%"></div></div>
+          </div>
+          <div style="background:rgba(0,0,0,.35);border-radius:10px;padding:14px">
+            <div style="font-size:.68rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Net I/O</div>
+            <div id="lv-net" style="font-family:'JetBrains Mono',monospace;font-size:.9rem;font-weight:700;color:var(--accent-purple)">—</div>
+            <div id="lv-conns" style="font-size:.72rem;color:var(--text-dim);margin-top:4px">0 connections</div>
+          </div>
+        </div>
+        <div style="font-size:.72rem;color:var(--text-dim)">
+          Host: <span id="lv-host" style="color:var(--accent-green)">—</span> &nbsp;|&nbsp;
+          OS: <span id="lv-os" style="color:var(--accent-cyan)">—</span> &nbsp;|&nbsp;
+          CPUs: <span id="lv-cpucount" style="color:var(--accent-yellow)">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-20">
+      <div class="card-header">
+        <i class="fas fa-list-tree" style="color:var(--accent-purple)"></i>
+        <h3>Top Processes</h3>
+        <span style="margin-left:auto;font-size:.7rem;color:var(--text-dim)">Refreshes every 8s</span>
+      </div>
+      <div class="card-body" style="padding:0;overflow-x:auto;max-height:280px;overflow-y:auto">
+        <table class="data-table" id="procTable">
+          <thead><tr><th>PID</th><th>Name</th><th>CPU%</th><th>Mem%</th><th>Status</th><th>User</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <i class="fas fa-network-wired" style="color:var(--accent-orange)"></i>
+        <h3>Live Network Connections</h3>
+        <span style="margin-left:auto;font-size:.7rem;color:var(--text-dim)">Refreshes every 5s</span>
+      </div>
+      <div class="card-body" style="padding:0;overflow-x:auto;max-height:220px;overflow-y:auto">
+        <table class="data-table" id="connTable">
+          <thead><tr><th>Local</th><th>Remote</th><th>Status</th><th>PID</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Live metrics from WebSocket (every 1s)
+window.onSystemTick = (d) => {
+  const cpu=d.cpu||0, mem=d.memory||0, disk=d.disk||0;
+  const cpuCol = cpu>80?'var(--accent-red)':cpu>60?'var(--accent-yellow)':'var(--accent-green)';
+  const memCol = mem>85?'var(--accent-red)':mem>70?'var(--accent-yellow)':'var(--accent-cyan)';
+  const diskCol= disk>90?'var(--accent-red)':'var(--accent-yellow)';
+  document.getElementById('lv-cpu').textContent    = `${cpu}%`;
+  document.getElementById('lv-mem').textContent    = `${mem}%`;
+  document.getElementById('lv-disk').textContent   = `${disk}%`;
+  document.getElementById('lv-cpu').style.color    = cpuCol;
+  document.getElementById('lv-mem').style.color    = memCol;
+  document.getElementById('lv-disk').style.color   = diskCol;
+  document.getElementById('lv-cpu-bar').style.cssText  = `background:${cpuCol};width:${cpu}%`;
+  document.getElementById('lv-mem-bar').style.cssText  = `background:${memCol};width:${mem}%`;
+  document.getElementById('lv-disk-bar').style.cssText = `background:${diskCol};width:${disk}%`;
+  document.getElementById('lv-host').textContent     = d.hostname||'—';
+  document.getElementById('lv-os').textContent       = d.platform||'—';
+  document.getElementById('lv-cpucount').textContent = d.cpu_count||'—';
+};
+
+window.onNetworkTick = (d) => {
+  const fmt = b => b>1048576?`${(b/1048576).toFixed(1)} MB/s`:b>1024?`${(b/1024).toFixed(1)} KB/s`:`${Math.round(b)} B/s`;
+  document.getElementById('lv-net').textContent   = `↓${fmt(d.in_rate||0)} ↑${fmt(d.out_rate||0)}`;
+  document.getElementById('lv-conns').textContent = `${d.connections||0} connections`;
+};
+
+// Processes & connections from /api/system (every 8s)
+async function fetchSystem() {
+  const d = await fetch('/api/system').then(r=>r.json());
+  // Processes
+  const procs = d.processes||[];
+  document.querySelector('#procTable tbody').innerHTML = procs.length
+    ? procs.map(p=>`<tr>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:.75rem">${p.pid}</td>
+        <td style="font-weight:600">${p.name}</td>
+        <td style="color:${p.cpu>50?'var(--accent-red)':p.cpu>20?'var(--accent-yellow)':'var(--accent-green)'};font-family:'JetBrains Mono',monospace">${p.cpu}%</td>
+        <td style="font-family:'JetBrains Mono',monospace">${p.mem}%</td>
+        <td>${statusBadge(p.status)}</td>
+        <td style="color:var(--text-dim);font-size:.75rem">${(p.user||'').split('\\').pop()}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:20px">No process data</td></tr>';
+
+  // Connections
+  const conns = d.connections||[];
+  document.querySelector('#connTable tbody').innerHTML = conns.length
+    ? conns.map(c=>`<tr>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:.75rem">${c.local}</td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:.75rem;color:var(--accent-cyan)">${c.remote}</td>
+        <td><span class="badge badge-low" style="font-size:.63rem">${c.status}</span></td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:.75rem;color:var(--text-dim)">${c.pid||'—'}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="4" style="text-align:center;color:var(--text-dim);padding:20px">No established connections</td></tr>';
+}
+
+// Rules
+async function fetchRules() {
+  const rules = await fetch('/api/rules').then(r=>r.json());
+  document.querySelector('#rulesTable tbody').innerHTML = rules.map(r=>`
+    <tr>
+      <td><strong>${r.name}</strong><br><span style="font-size:.7rem;color:var(--text-dim)">${r.description}</span></td>
+      <td>${severityBadge(r.severity)}</td>
+      <td style="font-family:'JetBrains Mono',monospace;font-size:.72rem;color:var(--text-secondary)">${r.condition}</td>
+      <td style="font-family:'JetBrains Mono',monospace;color:var(--accent-cyan)">${r.triggered_count||0}</td>
+      <td><span class="badge ${r.enabled?'badge-low':'badge-info'}">${r.enabled?'ACTIVE':'DISABLED'}</span></td>
+      <td><button class="btn btn-sm ${r.enabled?'btn-danger':'btn-outline'}" onclick="toggle(${r.id},${!r.enabled})">
+        ${r.enabled?'<i class="fas fa-stop"></i> Disable':'<i class="fas fa-play"></i> Enable'}
+      </button></td>
+    </tr>`).join('');
+}
+
+async function toggle(id, enabled) {
+  await fetch(`/api/rules/${id}/toggle`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});
+  fetchRules();
+}
+
+async function inject(count) {
+  const etype = document.getElementById('injType').value;
+  const sev   = document.getElementById('injSev').value;
+  const ip    = document.getElementById('injIP').value||'192.168.1.100';
+  const msg   = document.getElementById('injMsg').value;
+  const score = {critical:92,high:75,medium:50,low:25,info:5}[sev]||50;
+  const s = document.getElementById('injStatus');
+  s.textContent = `Injecting ${count} event(s)…`;
+  for (let i=0;i<count;i++) {
+    await fetch('/api/events/inject',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({event_type:etype,severity:sev,source_ip:ip,message:msg||`Test: ${etype}`,threat_score:score})});
+  }
+  s.style.color='var(--accent-green)';
+  s.textContent=`✅ ${count} event${count>1?'s':''} injected!`;
+  setTimeout(()=>s.textContent='',3000);
+}
+
+function statusBadge(s) {
+  const m={running:'badge-low',sleeping:'badge-info',idle:'badge-medium',zombie:'badge-critical',disk:'badge-high'};
+  return `<span class="badge ${m[s]||'badge-info'}">${s}</span>`;
+}
+
+window.refreshData = () => { fetchRules(); fetchSystem(); };
+fetchRules();
+fetchSystem();
+setInterval(fetchSystem, 8000);
+setInterval(fetchRules, 30000);
+</script>
+{% endblock %}

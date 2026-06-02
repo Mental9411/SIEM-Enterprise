@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}Threat Hunting — SIEM Enterprise{% endblock %}
+{% block page_title %}Threat Hunting{% endblock %}
+
+{% block content %}
+<div class="grid-21 mb-20">
+    <div class="card">
+        <div class="card-header"><i class="fas fa-crosshairs" style="color:var(--accent-green)"></i><h3>Hunt Query</h3></div>
+        <div class="card-body">
+            <div style="display:flex; gap:10px; margin-bottom:14px">
+                <input class="form-control" id="huntQuery" placeholder="Search IP, username, event type, domain, hash…" style="flex:1" onkeydown="if(event.key==='Enter') hunt()">
+                <button class="btn btn-primary" onclick="hunt()"><i class="fas fa-search"></i> Hunt</button>
+                <button class="btn btn-outline" onclick="clearHunt()"><i class="fas fa-times"></i></button>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px">
+                <span style="font-size:0.72rem; color:var(--text-dim)">Quick:</span>
+                <button class="filter-pill" onclick="quickHunt('brute_force')">Brute Force</button>
+                <button class="filter-pill" onclick="quickHunt('mimikatz')">Mimikatz</button>
+                <button class="filter-pill" onclick="quickHunt('powershell')">PowerShell</button>
+                <button class="filter-pill" onclick="quickHunt('exfiltration')">Exfiltration</button>
+                <button class="filter-pill" onclick="quickHunt('lateral')">Lateral Movement</button>
+            </div>
+            <div id="huntResults" style="max-height:380px; overflow-y:auto">
+                <div style="color:var(--text-dim); font-size:0.85rem; text-align:center; padding:40px">Enter a search term to begin hunting</div>
+            </div>
+        </div>
+    </div>
+    <div>
+        <div class="card mb-20">
+            <div class="card-header"><i class="fas fa-skull" style="color:var(--accent-red)"></i><h3>Top Attackers</h3></div>
+            <div class="card-body" style="padding:12px 16px; max-height:280px; overflow-y:auto">
+                <div id="attackersList"></div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><i class="fas fa-shield-plus" style="color:var(--accent-purple)"></i><h3>Add IOC</h3></div>
+            <div class="card-body">
+                <div class="form-group">
+                    <input class="form-control" id="iocIndicator" placeholder="IP, domain, hash…">
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px">
+                    <select class="form-control" id="iocType">
+                        <option value="IP">IP Address</option>
+                        <option value="Domain">Domain</option>
+                        <option value="MD5">MD5 Hash</option>
+                        <option value="SHA256">SHA256 Hash</option>
+                        <option value="URL">URL</option>
+                    </select>
+                    <select class="form-control" id="iocThreat">
+                        <option value="Malware C2">Malware C2</option>
+                        <option value="Port Scanner">Port Scanner</option>
+                        <option value="TOR Exit Node">TOR Exit Node</option>
+                        <option value="Known Attacker">Known Attacker</option>
+                        <option value="Phishing">Phishing</option>
+                    </select>
+                </div>
+                <div style="display:flex; gap:10px; align-items:center; margin-bottom:12px">
+                    <label class="form-label" style="margin:0; white-space:nowrap">Confidence</label>
+                    <input type="range" id="iocConf" min="1" max="100" value="80" style="flex:1" oninput="document.getElementById('iocConfVal').textContent=this.value+'%'">
+                    <span id="iocConfVal" style="font-family:'JetBrains Mono',monospace; color:var(--accent-cyan); min-width:40px; font-size:0.85rem">80%</span>
+                </div>
+                <button class="btn btn-primary" style="width:100%" onclick="addIOC()"><i class="fas fa-plus"></i> Add to Threat Intel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <i class="fas fa-database" style="color:var(--accent-cyan)"></i>
+        <h3>Threat Intelligence Database</h3>
+        <div style="margin-left:auto; display:flex; gap:8px">
+            <input class="form-control" id="iocSearch" placeholder="Search IOCs…" style="width:220px; padding:6px 12px; font-size:0.8rem" oninput="searchIOCs()">
+        </div>
+    </div>
+    <div class="card-body" style="padding:0; overflow-x:auto">
+        <table class="data-table">
+            <thead><tr>
+                <th>Indicator</th><th>Type</th><th>Threat</th><th>Confidence</th><th>Hit Count</th><th>Last Seen</th>
+            </tr></thead>
+            <tbody id="iocTable"></tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function hunt() {
+    const q = document.getElementById('huntQuery').value.trim();
+    if (!q) return;
+    document.getElementById('huntResults').innerHTML = '<div style="text-align:center; padding:20px"><div class="loading-spinner"></div></div>';
+    const res = await fetch(`/api/hunting/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    if (!data.events.length && !data.iocs.length) {
+        document.getElementById('huntResults').innerHTML = '<div style="color:var(--text-dim); text-align:center; padding:30px">No results found for: <strong style="color:var(--accent-cyan)">' + q + '</strong></div>';
+        return;
+    }
+    let html = '';
+    if (data.iocs.length) {
+        html += `<div style="font-size:0.72rem; color:var(--accent-red); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px; padding:0 4px">⚠️ IOC Matches (${data.iocs.length})</div>`;
+        data.iocs.forEach(ioc => {
+            html += `<div style="background:rgba(255,51,102,0.08); border:1px solid rgba(255,51,102,0.2); border-radius:8px; padding:10px; margin-bottom:8px">
+                <div style="font-family:'JetBrains Mono',monospace; color:var(--accent-red); font-size:0.85rem">${ioc.indicator}</div>
+                <div style="font-size:0.75rem; color:var(--text-secondary); margin-top:4px">${ioc.indicator_type} · ${ioc.threat_type} · Confidence: <strong>${ioc.confidence}%</strong></div>
+            </div>`;
+        });
+    }
+    if (data.events.length) {
+        html += `<div style="font-size:0.72rem; color:var(--accent-cyan); text-transform:uppercase; letter-spacing:1px; margin:12px 0 8px; padding:0 4px">Events (${data.events.length})</div>`;
+        data.events.forEach(e => {
+            html += `<div style="border-bottom:1px solid var(--border); padding:8px 4px; display:grid; grid-template-columns:80px 90px auto 60px; gap:8px; align-items:center; font-size:0.8rem">
+                <span style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--text-dim)">${fmtTime(e.timestamp)}</span>
+                ${severityBadge(e.severity)}
+                <span style="color:var(--text-secondary)">${e.message}</span>
+                <span style="font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:${scoreColor(e.threat_score||0)}">${e.threat_score||0}</span>
+            </div>`;
+        });
+    }
+    document.getElementById('huntResults').innerHTML = html;
+}
+
+function quickHunt(q) { document.getElementById('huntQuery').value = q; hunt(); }
+function clearHunt() { document.getElementById('huntQuery').value = ''; document.getElementById('huntResults').innerHTML = '<div style="color:var(--text-dim); font-size:0.85rem; text-align:center; padding:40px">Enter a search term to begin hunting</div>'; }
+
+async function fetchAttackers() {
+    const res = await fetch('/api/hunting/top-attackers');
+    const data = await res.json();
+    const list = document.getElementById('attackersList');
+    if (!data.length) { list.innerHTML = '<div style="color:var(--text-dim); font-size:0.8rem">No data</div>'; return; }
+    const max = data[0].attacks;
+    list.innerHTML = data.map(d => `
+        <div style="padding:8px 0; border-bottom:1px solid var(--border); display:flex; gap:10px; align-items:center">
+            <div style="flex:1">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:var(--accent-cyan)">${d.source_ip}</div>
+                <div style="font-size:0.68rem; color:var(--text-dim)">${d.geo_city||''} ${d.geo_country||''}</div>
+                <div class="progress" style="margin-top:4px"><div class="progress-bar" style="background:var(--accent-red); width:${Math.round(d.attacks/max*100)}%"></div></div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; font-weight:700; color:var(--accent-red)">${d.attacks}</div>
+        </div>
+    `).join('');
+}
+
+async function loadIOCs() {
+    const q = document.getElementById('iocSearch').value;
+    const res = await fetch(`/api/threat-intel?limit=50${q ? '&search='+encodeURIComponent(q) : ''}`);
+    const data = await res.json();
+    document.getElementById('iocTable').innerHTML = data.map(ioc => {
+        const conf = ioc.confidence;
+        const confColor = conf > 80 ? 'var(--accent-red)' : conf > 60 ? 'var(--accent-orange)' : 'var(--accent-yellow)';
+        return `<tr>
+            <td style="font-family:'JetBrains Mono',monospace; color:var(--accent-cyan)">${ioc.indicator}</td>
+            <td><span class="badge badge-info">${ioc.indicator_type}</span></td>
+            <td>${ioc.threat_type}</td>
+            <td><span style="color:${confColor}; font-weight:700; font-family:'JetBrains Mono',monospace">${conf}%</span></td>
+            <td style="font-family:'JetBrains Mono',monospace">${ioc.hit_count||0}</td>
+            <td style="color:var(--text-dim); font-size:0.78rem">${ioc.last_seen ? fmtDT(ioc.last_seen) : '—'}</td>
+        </tr>`;
+    }).join('') || '<tr><td colspan="6" style="text-align:center; color:var(--text-dim); padding:30px">No IOCs found</td></tr>';
+}
+
+function searchIOCs() { loadIOCs(); }
+
+async function addIOC() {
+    const indicator = document.getElementById('iocIndicator').value.trim();
+    if (!indicator) return;
+    await fetch('/api/threat-intel/add', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ indicator, indicator_type: document.getElementById('iocType').value, threat_type: document.getElementById('iocThreat').value, confidence: parseInt(document.getElementById('iocConf').value) })
+    });
+    document.getElementById('iocIndicator').value = '';
+    loadIOCs();
+    showAlertToast({ title:'IOC Added', description:`${indicator} added to threat intel database`, severity:'info' });
+}
+
+window.refreshData = () => { fetchAttackers(); loadIOCs(); };
+fetchAttackers();
+loadIOCs();
+setInterval(fetchAttackers, 30000);
+</script>
+{% endblock %}

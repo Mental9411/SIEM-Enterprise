@@ -1,0 +1,291 @@
+{% extends "base.html" %}
+{% block title %}Threats & Alerts — SIEM Enterprise{% endblock %}
+{% block page_title %}Threat Intelligence & Alerts{% endblock %}
+
+{% block extra_css %}
+<style>
+.alerts-layout { display: grid; grid-template-columns: 1fr 360px; gap: 20px; }
+.alert-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 3px solid;
+    border-radius: var(--radius);
+    padding: 16px; margin-bottom: 10px;
+    transition: all 0.2s; cursor: pointer;
+}
+.alert-card:hover { background: var(--bg-card-hover); transform: translateX(3px); }
+.alert-card.critical { border-left-color: var(--accent-red); }
+.alert-card.high { border-left-color: var(--accent-orange); }
+.alert-card.medium { border-left-color: var(--accent-yellow); }
+.alert-card.low { border-left-color: var(--accent-green); }
+.alert-card.info { border-left-color: var(--accent-cyan); }
+.alert-title { font-weight: 600; font-size: 0.88rem; margin-bottom: 4px; }
+.alert-desc { font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5; }
+.alert-meta { display: flex; gap: 16px; font-size: 0.72rem; color: var(--text-dim); flex-wrap: wrap; align-items: center; }
+.alert-meta i { margin-right: 4px; }
+.alert-actions { display: flex; gap: 8px; margin-top: 10px; }
+.intel-item { padding: 10px 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; }
+.intel-item:last-child { border-bottom: none; }
+.intel-indicator { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--accent-cyan); }
+.intel-confidence { width: 50px; text-align: right; font-weight: 700; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; }
+.search-bar { position: relative; flex: 1; }
+.search-bar input { width: 100%; padding: 10px 14px 10px 38px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; color: var(--text-primary); font-size: 0.875rem; outline: none; }
+.search-bar input:focus { border-color: var(--accent-green); }
+.search-bar i { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-dim); }
+@media (max-width: 1100px) { .alerts-layout { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Top Controls -->
+<div class="card mb-20">
+    <div class="card-body" style="padding:14px 20px">
+        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
+            <div class="search-bar">
+                <i class="fas fa-search"></i>
+                <input type="text" id="alertSearch" placeholder="Search alerts by title, description, IP…" oninput="filterAlerts()">
+            </div>
+            <div class="filter-bar" id="severityFilters">
+                <button class="filter-pill active" data-sev="all" onclick="setSeverity('all', this)">All</button>
+                <button class="filter-pill" data-sev="critical" onclick="setSeverity('critical', this)" style="color:var(--accent-red); border-color:rgba(255,51,102,0.3)">Critical</button>
+                <button class="filter-pill" data-sev="high" onclick="setSeverity('high', this)" style="color:var(--accent-orange); border-color:rgba(255,107,53,0.3)">High</button>
+                <button class="filter-pill" data-sev="medium" onclick="setSeverity('medium', this)" style="color:var(--accent-yellow); border-color:rgba(255,214,10,0.3)">Medium</button>
+                <button class="filter-pill" data-sev="low" onclick="setSeverity('low', this)" style="color:var(--accent-green); border-color:rgba(0,255,163,0.3)">Low</button>
+            </div>
+            <div class="filter-bar" id="statusFilters">
+                <button class="filter-pill active" data-status="all" onclick="setStatus('all', this)">All Status</button>
+                <button class="filter-pill" data-status="new" onclick="setStatus('new', this)">New</button>
+                <button class="filter-pill" data-status="acknowledged" onclick="setStatus('acknowledged', this)">Acked</button>
+                <button class="filter-pill" data-status="resolved" onclick="setStatus('resolved', this)">Resolved</button>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="fetchAlerts()"><i class="fas fa-rotate-right"></i></button>
+        </div>
+    </div>
+</div>
+
+<div class="alerts-layout">
+    <!-- Alert List -->
+    <div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+            <span style="font-size:0.82rem; color:var(--text-secondary)">Showing <strong id="alerts-count">0</strong> alerts</span>
+            <button class="btn btn-primary btn-sm" onclick="resolveAll()"><i class="fas fa-check-double"></i> Resolve All Visible</button>
+        </div>
+        <div id="alertsList">
+            <div style="text-align:center; padding:40px; color:var(--text-dim)"><div class="loading-spinner"></div></div>
+        </div>
+    </div>
+
+    <!-- Sidebar panels -->
+    <div style="display:flex; flex-direction:column; gap:20px">
+        <!-- Stats mini -->
+        <div class="card">
+            <div class="card-header"><i class="fas fa-chart-bar" style="color:var(--accent-orange)"></i><h3>Alert Summary</h3></div>
+            <div class="card-body">
+                <canvas id="alertSummaryChart" style="max-height:180px"></canvas>
+            </div>
+        </div>
+
+        <!-- Top Attackers -->
+        <div class="card">
+            <div class="card-header"><i class="fas fa-skull-crossbones" style="color:var(--accent-red)"></i><h3>Top Threat Actors</h3></div>
+            <div class="card-body" style="padding:12px 16px">
+                <div id="topAttackersList">
+                    <div style="color:var(--text-dim); font-size:0.82rem; text-align:center; padding:20px">Loading…</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Threat Intel -->
+        <div class="card">
+            <div class="card-header"><i class="fas fa-shield-virus" style="color:var(--accent-purple)"></i><h3>Active IOCs</h3></div>
+            <div class="card-body" style="padding:12px 16px">
+                <div id="iocList">
+                    <div style="color:var(--text-dim); font-size:0.82rem; text-align:center; padding:20px">Loading…</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let allAlerts = [];
+let currentSeverity = 'all';
+let currentStatus = 'all';
+let summaryChart;
+
+function setSeverity(sev, el) {
+    currentSeverity = sev;
+    document.querySelectorAll('[data-sev]').forEach(b => b.classList.remove('active'));
+    el.classList.add('active');
+    renderAlerts();
+}
+
+function setStatus(status, el) {
+    currentStatus = status;
+    document.querySelectorAll('[data-status]').forEach(b => b.classList.remove('active'));
+    el.classList.add('active');
+    renderAlerts();
+}
+
+function filterAlerts() { renderAlerts(); }
+
+async function fetchAlerts() {
+    const res = await fetch('/api/alerts?limit=200');
+    allAlerts = await res.json();
+    renderAlerts();
+}
+
+function renderAlerts() {
+    const search = document.getElementById('alertSearch').value.toLowerCase();
+    let filtered = allAlerts;
+    if (currentSeverity !== 'all') filtered = filtered.filter(a => a.severity === currentSeverity);
+    if (currentStatus !== 'all') filtered = filtered.filter(a => a.status === currentStatus);
+    if (search) filtered = filtered.filter(a =>
+        (a.title||'').toLowerCase().includes(search) ||
+        (a.description||'').toLowerCase().includes(search) ||
+        (a.source_ip||'').includes(search)
+    );
+
+    document.getElementById('alerts-count').textContent = filtered.length;
+
+    if (!filtered.length) {
+        document.getElementById('alertsList').innerHTML = `
+            <div style="text-align:center; padding:60px; color:var(--text-dim)">
+                <i class="fas fa-shield-check" style="font-size:2.5rem; margin-bottom:12px; display:block; color:var(--accent-green)"></i>
+                No alerts match your filters
+            </div>`;
+        return;
+    }
+
+    document.getElementById('alertsList').innerHTML = filtered.map(a => `
+        <div class="alert-card ${a.severity}">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px">
+                <div class="alert-title">${a.title}</div>
+                <div style="display:flex; gap:6px; flex-shrink:0; margin-left:12px">
+                    ${severityBadge(a.severity)} ${statusBadge(a.status)}
+                </div>
+            </div>
+            <div class="alert-desc">${a.description}</div>
+            <div class="alert-meta">
+                <span><i class="fas fa-clock"></i>${fmtDT(a.timestamp)}</span>
+                ${a.source_ip ? `<span><i class="fas fa-network-wired"></i>${a.source_ip}</span>` : ''}
+                ${a.mitre_tactic ? `<span><i class="fas fa-sitemap"></i>${a.mitre_tactic}</span>` : ''}
+                ${a.rule_name ? `<span><i class="fas fa-code-branch"></i>${a.rule_name}</span>` : ''}
+            </div>
+            ${a.status === 'new' ? `
+            <div class="alert-actions">
+                <button class="btn btn-outline btn-sm" onclick="ackAlert('${a.alert_id}')"><i class="fas fa-eye"></i> Acknowledge</button>
+                <button class="btn btn-primary btn-sm" onclick="resolveAlert('${a.alert_id}')"><i class="fas fa-check"></i> Resolve</button>
+                <button class="btn btn-sm" style="background:rgba(0,212,255,0.1); color:var(--accent-cyan); border:1px solid rgba(0,212,255,0.3)" onclick="createIncidentFromAlert('${a.alert_id}')"><i class="fas fa-fire"></i> Create Incident</button>
+            </div>` : a.status === 'acknowledged' ? `
+            <div class="alert-actions">
+                <button class="btn btn-primary btn-sm" onclick="resolveAlert('${a.alert_id}')"><i class="fas fa-check"></i> Resolve</button>
+            </div>` : ''}
+        </div>
+    `).join('');
+
+    updateSummaryChart(filtered);
+}
+
+async function ackAlert(id) {
+    await fetch(`/api/alerts/${id}/acknowledge`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({assigned_to: 'SOC Analyst'})});
+    fetchAlerts();
+}
+
+async function resolveAlert(id) {
+    await fetch(`/api/alerts/${id}/resolve`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({assigned_to: 'SOC Analyst'})});
+    fetchAlerts();
+}
+
+async function resolveAll() {
+    const search = document.getElementById('alertSearch').value.toLowerCase();
+    let visible = allAlerts.filter(a => a.status === 'new');
+    if (currentSeverity !== 'all') visible = visible.filter(a => a.severity === currentSeverity);
+    await Promise.all(visible.map(a => fetch(`/api/alerts/${a.alert_id}/resolve`, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})));
+    fetchAlerts();
+}
+
+async function createIncidentFromAlert(id) {
+    const alert = allAlerts.find(a => a.alert_id === id);
+    if (!alert) return;
+    const res = await fetch('/api/incidents/create', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ title: alert.title, description: alert.description, severity: alert.severity })
+    });
+    const data = await res.json();
+    if (data.incident_id) {
+        resolveAlert(id);
+        showAlertToast({title:'Incident Created', description: `${data.incident_id} created from this alert`, severity:'info'});
+    }
+}
+
+function initSummaryChart() {
+    summaryChart = new Chart(document.getElementById('alertSummaryChart').getContext('2d'), {
+        type: 'bar',
+        data: { labels: ['Critical', 'High', 'Medium', 'Low'], datasets: [{
+            data: [0,0,0,0],
+            backgroundColor: ['rgba(255,51,102,0.7)', 'rgba(255,107,53,0.7)', 'rgba(255,214,10,0.7)', 'rgba(0,255,163,0.7)'],
+            borderRadius: 4, borderWidth: 0
+        }]},
+        options: { responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { x: { grid: { display: false } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, beginAtZero: true } }
+        }
+    });
+}
+
+function updateSummaryChart(alerts) {
+    const counts = ['critical','high','medium','low'].map(s => alerts.filter(a => a.severity === s).length);
+    summaryChart.data.datasets[0].data = counts;
+    summaryChart.update('none');
+}
+
+async function fetchTopAttackers() {
+    const res = await fetch('/api/hunting/top-attackers');
+    const data = await res.json();
+    const list = document.getElementById('topAttackersList');
+    if (!data.length) { list.innerHTML = '<div style="color:var(--text-dim); font-size:0.8rem; padding:10px">No data yet</div>'; return; }
+    const max = data[0].attacks;
+    list.innerHTML = data.slice(0,8).map((d,i) => `
+        <div class="intel-item">
+            <div>
+                <div class="intel-indicator">${d.source_ip}</div>
+                <div style="font-size:0.7rem; color:var(--text-dim)">${d.geo_city || ''} ${d.geo_country || ''}</div>
+                <div class="progress" style="margin-top:4px; width:140px">
+                    <div class="progress-bar" style="background:var(--accent-red); width:${Math.round(d.attacks/max*100)}%"></div>
+                </div>
+            </div>
+            <div class="intel-confidence" style="color:var(--accent-red)">${d.attacks}</div>
+        </div>
+    `).join('');
+}
+
+async function fetchIOCs() {
+    const res = await fetch('/api/threat-intel?limit=10');
+    const data = await res.json();
+    const list = document.getElementById('iocList');
+    if (!data.length) { list.innerHTML = '<div style="color:var(--text-dim); font-size:0.8rem; padding:10px">No IOCs</div>'; return; }
+    list.innerHTML = data.map(ioc => `
+        <div class="intel-item">
+            <div>
+                <div class="intel-indicator">${ioc.indicator}</div>
+                <div style="font-size:0.7rem; color:var(--text-dim)">${ioc.indicator_type} · ${ioc.threat_type}</div>
+            </div>
+            <div class="intel-confidence" style="color:${ioc.confidence > 80 ? 'var(--accent-red)' : ioc.confidence > 60 ? 'var(--accent-orange)' : 'var(--accent-yellow)'}">${ioc.confidence}%</div>
+        </div>
+    `).join('');
+}
+
+window.onNewAlert = () => fetchAlerts();
+window.refreshData = () => { fetchAlerts(); fetchTopAttackers(); fetchIOCs(); };
+
+initSummaryChart();
+fetchAlerts();
+fetchTopAttackers();
+fetchIOCs();
+setInterval(fetchAlerts, 10000);
+setInterval(fetchTopAttackers, 30000);
+</script>
+{% endblock %}

@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Reports — SIEM Enterprise{% endblock %}
+{% block page_title %}Security Reports{% endblock %}
+
+{% block content %}
+<div class="grid-2 mb-20">
+    <div class="card">
+        <div class="card-header"><i class="fas fa-chart-line" style="color:var(--accent-green)"></i><h3>30-Day Event Trend</h3></div>
+        <div class="card-body"><canvas id="trendChart" style="max-height:220px"></canvas></div>
+    </div>
+    <div class="card">
+        <div class="card-header"><i class="fas fa-chart-pie" style="color:var(--accent-cyan)"></i><h3>Event Type Breakdown</h3></div>
+        <div class="card-body"><canvas id="typeChart" style="max-height:220px"></canvas></div>
+    </div>
+</div>
+<div class="grid-2 mb-20">
+    <div class="card">
+        <div class="card-header"><i class="fas fa-network-wired" style="color:var(--accent-red)"></i><h3>Top Source IPs (7d)</h3></div>
+        <div class="card-body" style="padding:0; overflow-x:auto">
+            <table class="data-table" id="ipTable"><thead><tr><th>IP</th><th>Events</th></tr></thead><tbody></tbody></table>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header"><i class="fas fa-file-export" style="color:var(--accent-yellow)"></i><h3>Export Report</h3></div>
+        <div class="card-body">
+            <div class="form-group"><label class="form-label">Report Type</label>
+                <select class="form-control" id="repType">
+                    <option>Security Summary</option><option>Incident Report</option><option>Compliance Report</option><option>Threat Intelligence</option>
+                </select>
+            </div>
+            <div class="form-group"><label class="form-label">Time Range</label>
+                <select class="form-control" id="repRange">
+                    <option>Last 24 Hours</option><option>Last 7 Days</option><option>Last 30 Days</option>
+                </select>
+            </div>
+            <div class="form-group"><label class="form-label">Format</label>
+                <select class="form-control" id="repFormat"><option>JSON</option><option>CSV</option></select>
+            </div>
+            <button class="btn btn-primary" style="width:100%" onclick="exportReport()"><i class="fas fa-download"></i> Export</button>
+            <div id="repStatus" style="margin-top:12px; font-size:0.8rem; color:var(--text-secondary)"></div>
+        </div>
+    </div>
+</div>
+<div class="card">
+    <div class="card-header"><i class="fas fa-info-circle" style="color:var(--accent-purple)"></i><h3>Summary Statistics</h3></div>
+    <div class="card-body">
+        <div class="stats-grid" id="summaryGrid"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let trendChart, typeChart;
+
+function initCharts() {
+    trendChart = new Chart(document.getElementById('trendChart').getContext('2d'), {
+        type: 'line',
+        data: { labels: [], datasets: [{ label: 'Events/day', data: [], borderColor: '#00ffa3', backgroundColor: 'rgba(0,255,163,0.08)', fill: true, tension: 0.4 }]},
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.04)' } } } }
+    });
+    typeChart = new Chart(document.getElementById('typeChart').getContext('2d'), {
+        type: 'doughnut',
+        data: { labels: [], datasets: [{ data: [], backgroundColor: ['#ff3366','#ff6b35','#ffd60a','#00ffa3','#00d4ff','#a855f7','#ec4899','#14b8a6'], borderWidth: 2, borderColor: '#04060f' }]},
+        options: { responsive: true, maintainAspectRatio: false, cutout: '60%', plugins: { legend: { position: 'right', labels: { font: { size: 10 } } } } }
+    });
+}
+
+async function fetchReports() {
+    const res = await fetch('/api/reports/summary');
+    const data = await res.json();
+    if (data.daily_events.length) {
+        trendChart.data.labels = data.daily_events.map(d => d.day.slice(5));
+        trendChart.data.datasets[0].data = data.daily_events.map(d => d.cnt);
+        trendChart.update('none');
+    }
+    if (data.top_event_types.length) {
+        typeChart.data.labels = data.top_event_types.map(d => d.event_type.replace(/_/g,' '));
+        typeChart.data.datasets[0].data = data.top_event_types.map(d => d.cnt);
+        typeChart.update('none');
+    }
+    const tbody = document.querySelector('#ipTable tbody');
+    tbody.innerHTML = data.top_source_ips.map(d => `<tr><td style="font-family:'JetBrains Mono',monospace; color:var(--accent-cyan)">${d.source_ip}</td><td>${d.cnt}</td></tr>`).join('');
+
+    const s = data.summary;
+    document.getElementById('summaryGrid').innerHTML = [
+        ['Total Events', s.total_events, 'var(--accent-cyan)', 'fa-database'],
+        ['Events Today', s.events_today, 'var(--accent-green)', 'fa-calendar-day'],
+        ['Total Alerts', s.total_alerts, 'var(--accent-orange)', 'fa-bell'],
+        ['Open Incidents', s.open_incidents, 'var(--accent-red)', 'fa-fire'],
+    ].map(([label, val, color, icon]) => `
+        <div class="stat-card">
+            <div class="stat-icon" style="background:${color}22; color:${color}"><i class="fas ${icon}"></i></div>
+            <div class="stat-label">${label}</div>
+            <div class="stat-value" style="color:${color}">${(val||0).toLocaleString()}</div>
+        </div>
+    `).join('');
+}
+
+async function exportReport() {
+    const s = document.getElementById('repStatus');
+    s.textContent = '⏳ Generating report…';
+    const res = await fetch('/api/reports/summary');
+    const data = await res.json();
+    const fmt = document.getElementById('repFormat').value;
+    let blob, filename;
+    if (fmt === 'JSON') {
+        blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        filename = `siem_report_${new Date().toISOString().slice(0,10)}.json`;
+    } else {
+        const rows = [['Metric','Value'], ...Object.entries(data.summary)];
+        blob = new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv' });
+        filename = `siem_report_${new Date().toISOString().slice(0,10)}.csv`;
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+    s.textContent = `✅ ${filename} downloaded!`;
+    setTimeout(() => s.textContent = '', 3000);
+}
+
+window.refreshData = fetchReports;
+initCharts();
+fetchReports();
+</script>
+{% endblock %}

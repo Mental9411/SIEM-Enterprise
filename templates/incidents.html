@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+{% block title %}Incidents — SIEM Enterprise{% endblock %}
+{% block page_title %}Incident Response Management{% endblock %}
+
+{% block extra_css %}
+<style>
+.incidents-grid { display: grid; grid-template-columns: 1fr 380px; gap: 24px; }
+.incident-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-left: 3px solid; border-radius: var(--radius);
+    padding: 16px; margin-bottom: 12px; cursor: pointer;
+    transition: all 0.2s;
+}
+.incident-card:hover { background: var(--bg-card-hover); transform: translateX(3px); }
+.incident-card.critical { border-left-color: var(--accent-red); }
+.incident-card.high { border-left-color: var(--accent-orange); }
+.incident-card.medium { border-left-color: var(--accent-yellow); }
+.incident-card.low { border-left-color: var(--accent-green); }
+.inc-id { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--accent-cyan); margin-bottom: 6px; }
+.inc-title { font-weight: 700; font-size: 0.95rem; margin-bottom: 6px; }
+.inc-desc { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5; }
+.inc-footer { display: flex; gap: 12px; align-items: center; font-size: 0.72rem; color: var(--text-dim); flex-wrap: wrap; }
+.status-badge-open { background: rgba(255,107,53,0.15); color: var(--accent-orange); border: 1px solid rgba(255,107,53,0.3); padding: 3px 9px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; }
+.status-badge-in-progress { background: rgba(0,212,255,0.1); color: var(--accent-cyan); border: 1px solid rgba(0,212,255,0.3); padding: 3px 9px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; }
+.status-badge-resolved { background: rgba(0,255,163,0.1); color: var(--accent-green); border: 1px solid rgba(0,255,163,0.3); padding: 3px 9px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; }
+.kpi-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-bottom: 24px; }
+.kpi-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; text-align: center; }
+.kpi-num { font-family: 'Orbitron', monospace; font-size: 1.8rem; font-weight: 700; }
+.kpi-label { font-size: 0.72rem; color: var(--text-secondary); margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
+@media (max-width: 1100px) { .incidents-grid { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- KPI Row -->
+<div class="kpi-row">
+    <div class="kpi-card"><div class="kpi-num" id="inc-open" style="color:var(--accent-orange)">0</div><div class="kpi-label">Open</div></div>
+    <div class="kpi-card"><div class="kpi-num" id="inc-inprog" style="color:var(--accent-cyan)">0</div><div class="kpi-label">In Progress</div></div>
+    <div class="kpi-card"><div class="kpi-num" id="inc-resolved" style="color:var(--accent-green)">0</div><div class="kpi-label">Resolved</div></div>
+</div>
+
+<div class="incidents-grid">
+    <!-- Incident List -->
+    <div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px">
+            <div class="filter-bar">
+                <button class="filter-pill active" onclick="filterStatus('all',this)">All</button>
+                <button class="filter-pill" onclick="filterStatus('open',this)" style="color:var(--accent-orange)">Open</button>
+                <button class="filter-pill" onclick="filterStatus('in-progress',this)" style="color:var(--accent-cyan)">In Progress</button>
+                <button class="filter-pill" onclick="filterStatus('resolved',this)" style="color:var(--accent-green)">Resolved</button>
+            </div>
+        </div>
+        <div id="incidentsList">
+            <div style="text-align:center; padding:40px; color:var(--text-dim)"><div class="loading-spinner"></div></div>
+        </div>
+    </div>
+
+    <!-- Create Form -->
+    <div>
+        <div class="card mb-20">
+            <div class="card-header"><i class="fas fa-plus-circle" style="color:var(--accent-green)"></i><h3>Create Incident</h3></div>
+            <div class="card-body">
+                <div class="form-group">
+                    <label class="form-label">Title *</label>
+                    <input class="form-control" id="incTitle" placeholder="Brief incident title">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <textarea class="form-control" id="incDesc" rows="3" placeholder="Describe the incident…"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Severity</label>
+                    <select class="form-control" id="incSeverity">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                        <option value="critical">Critical</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Assigned To</label>
+                    <input class="form-control" id="incAssignee" placeholder="SOC Analyst name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Affected Assets</label>
+                    <input class="form-control" id="incAssets" placeholder="IPs, hostnames, systems…">
+                </div>
+                <button class="btn btn-primary" style="width:100%" onclick="createIncident()">
+                    <i class="fas fa-plus"></i> Create Incident
+                </button>
+            </div>
+        </div>
+
+        <!-- MTTR chart -->
+        <div class="card">
+            <div class="card-header"><i class="fas fa-chart-line" style="color:var(--accent-purple)"></i><h3>Incident Severity</h3></div>
+            <div class="card-body">
+                <canvas id="incidentChart" style="max-height:180px"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Update Incident Modal (inline) -->
+<div id="updateModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:1000; display:none; align-items:center; justify-content:center">
+    <div style="background:#0d1a2e; border:1px solid var(--border); border-radius:16px; padding:28px; width:500px; max-width:90vw">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
+            <h3 style="font-family:'Orbitron', monospace; font-size:0.95rem">Update Incident</h3>
+            <button onclick="closeModal()" style="background:none; border:none; color:var(--text-secondary); font-size:1.1rem; cursor:pointer"><i class="fas fa-times"></i></button>
+        </div>
+        <input type="hidden" id="modalIncId">
+        <div class="form-group">
+            <label class="form-label">Status</label>
+            <select class="form-control" id="modalStatus">
+                <option value="open">Open</option>
+                <option value="in-progress">In Progress</option>
+                <option value="resolved">Resolved</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Assigned To</label>
+            <input class="form-control" id="modalAssignee" placeholder="Analyst name">
+        </div>
+        <div class="form-group">
+            <label class="form-label">Notes</label>
+            <textarea class="form-control" id="modalNotes" rows="3" placeholder="Investigation notes, findings…"></textarea>
+        </div>
+        <div style="display:flex; gap:10px">
+            <button class="btn btn-primary" onclick="submitUpdate()" style="flex:1"><i class="fas fa-save"></i> Update</button>
+            <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let incidents = [];
+let statusFilter = 'all';
+let incidentChart;
+
+function filterStatus(s, el) {
+    statusFilter = s;
+    document.querySelectorAll('.filter-pill').forEach(b => b.classList.remove('active'));
+    el.classList.add('active');
+    renderIncidents();
+}
+
+async function fetchIncidents() {
+    const res = await fetch('/api/incidents');
+    incidents = await res.json();
+    renderIncidents();
+    updateKPIs();
+    updateChart();
+}
+
+function updateKPIs() {
+    document.getElementById('inc-open').textContent = incidents.filter(i => i.status === 'open').length;
+    document.getElementById('inc-inprog').textContent = incidents.filter(i => i.status === 'in-progress').length;
+    document.getElementById('inc-resolved').textContent = incidents.filter(i => i.status === 'resolved').length;
+}
+
+function renderIncidents() {
+    const filtered = statusFilter === 'all' ? incidents : incidents.filter(i => i.status === statusFilter);
+    const container = document.getElementById('incidentsList');
+    if (!filtered.length) {
+        container.innerHTML = `<div style="text-align:center; padding:60px; color:var(--text-dim)"><i class="fas fa-check-circle" style="font-size:2.5rem; margin-bottom:12px; display:block; color:var(--accent-green)"></i>No incidents</div>`;
+        return;
+    }
+    container.innerHTML = filtered.map(inc => {
+        const statusCls = inc.status === 'resolved' ? 'status-badge-resolved' : inc.status === 'in-progress' ? 'status-badge-in-progress' : 'status-badge-open';
+        return `<div class="incident-card ${inc.severity}" onclick="openModal('${inc.incident_id}')">
+            <div class="inc-id">${inc.incident_id}</div>
+            <div class="inc-title">${inc.title}</div>
+            <div class="inc-desc">${inc.description || 'No description provided.'}</div>
+            <div class="inc-footer">
+                ${severityBadge(inc.severity)}
+                <span class="${statusCls}">${(inc.status||'').toUpperCase()}</span>
+                ${inc.assigned_to ? `<span><i class="fas fa-user"></i> ${inc.assigned_to}</span>` : ''}
+                <span><i class="fas fa-clock"></i> ${fmtDT(inc.created_at)}</span>
+                ${inc.affected_assets ? `<span><i class="fas fa-server"></i> ${inc.affected_assets}</span>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function initChart() {
+    incidentChart = new Chart(document.getElementById('incidentChart').getContext('2d'), {
+        type: 'doughnut',
+        data: { labels: ['Critical','High','Medium','Low'], datasets: [{
+            data: [0,0,0,0],
+            backgroundColor: ['rgba(255,51,102,0.8)','rgba(255,107,53,0.8)','rgba(255,214,10,0.8)','rgba(0,255,163,0.8)'],
+            borderWidth: 2, borderColor: '#04060f', hoverOffset: 6
+        }]},
+        options: { responsive: true, maintainAspectRatio: false, cutout: '65%',
+            plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } }
+        }
+    });
+}
+
+function updateChart() {
+    const counts = ['critical','high','medium','low'].map(s => incidents.filter(i => i.severity===s).length);
+    incidentChart.data.datasets[0].data = counts;
+    incidentChart.update('none');
+}
+
+async function createIncident() {
+    const title = document.getElementById('incTitle').value.trim();
+    if (!title) { alert('Please enter a title.'); return; }
+    const body = {
+        title, severity: document.getElementById('incSeverity').value,
+        description: document.getElementById('incDesc').value,
+        assigned_to: document.getElementById('incAssignee').value,
+        affected_assets: document.getElementById('incAssets').value,
+    };
+    const res = await fetch('/api/incidents/create', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (data.incident_id) {
+        ['incTitle','incDesc','incAssignee','incAssets'].forEach(id => document.getElementById(id).value = '');
+        showAlertToast({ title:'Incident Created', description: `${data.incident_id} — ${title}`, severity:'low' });
+        fetchIncidents();
+    }
+}
+
+function openModal(iid) {
+    const inc = incidents.find(i => i.incident_id === iid);
+    if (!inc) return;
+    document.getElementById('modalIncId').value = iid;
+    document.getElementById('modalStatus').value = inc.status || 'open';
+    document.getElementById('modalAssignee').value = inc.assigned_to || '';
+    document.getElementById('modalNotes').value = inc.notes || '';
+    document.getElementById('updateModal').style.display = 'flex';
+}
+
+function closeModal() { document.getElementById('updateModal').style.display = 'none'; }
+
+async function submitUpdate() {
+    const iid = document.getElementById('modalIncId').value;
+    const body = {
+        status: document.getElementById('modalStatus').value,
+        assigned_to: document.getElementById('modalAssignee').value,
+        notes: document.getElementById('modalNotes').value,
+    };
+    await fetch(`/api/incidents/${iid}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    closeModal();
+    fetchIncidents();
+}
+
+window.refreshData = fetchIncidents;
+initChart();
+fetchIncidents();
+setInterval(fetchIncidents, 30000);
+</script>
+{% endblock %}

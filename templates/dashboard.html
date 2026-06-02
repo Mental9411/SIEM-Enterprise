@@ -1,0 +1,398 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — SIEM Enterprise{% endblock %}
+{% block page_title %}Security Operations Center{% endblock %}
+
+{% block extra_css %}
+<style>
+.chart-grid { display:grid; grid-template-columns:2fr 1fr; gap:20px; margin-bottom:20px; }
+.chart-grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; margin-bottom:20px; }
+.bottom-grid { display:grid; grid-template-columns:3fr 2fr; gap:20px; }
+.sys-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.sys-box { background:rgba(0,0,0,0.35); border-radius:10px; padding:14px; }
+.sys-box-label { font-size:.68rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:1.2px; margin-bottom:6px; }
+.sys-box-val { font-family:'Orbitron',monospace; font-size:1.5rem; font-weight:700; margin-bottom:8px; }
+.geo-item { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--border); font-size:.8rem; }
+.geo-item:last-child { border-bottom:none; }
+.event-feed { max-height:400px; overflow-y:auto; }
+.ev { display:grid; grid-template-columns:90px 110px 70px auto 52px; gap:8px; align-items:center;
+       padding:8px 0; border-bottom:1px solid rgba(255,255,255,.03); font-size:.79rem; }
+.ev-time { font-family:'JetBrains Mono',monospace; font-size:.68rem; color:var(--text-dim); }
+.ev-type { font-weight:600; font-size:.73rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ev-msg  { color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.score-pill { display:inline-block; padding:2px 7px; border-radius:10px; font-size:.68rem; font-weight:700; font-family:'JetBrains Mono',monospace; text-align:center; }
+.mitre-cell { background:rgba(0,0,0,.3); border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:.72rem; transition:.2s; }
+.mitre-cell:hover { border-color:var(--accent-cyan); }
+.mitre-name { color:var(--text-secondary); font-size:.66rem; margin-bottom:4px; }
+.mitre-count { font-family:'JetBrains Mono',monospace; font-weight:700; }
+.net-row { display:flex; justify-content:space-between; align-items:center; padding:7px 0; border-bottom:1px solid var(--border); font-size:.8rem; }
+.net-val { font-family:'JetBrains Mono',monospace; font-size:.8rem; }
+@media(max-width:1300px){ .chart-grid,.chart-grid-3,.bottom-grid{grid-template-columns:1fr;} }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- KPI Cards -->
+<div class="stats-grid mb-24">
+  <div class="stat-card" style="--accent-color:var(--accent-red)">
+    <div class="stat-icon" style="background:rgba(255,51,102,.15);color:var(--accent-red)"><i class="fas fa-triangle-exclamation"></i></div>
+    <div class="stat-label">Critical Alerts</div>
+    <div class="stat-value" id="k-critical">0</div>
+    <div class="stat-sub">Needs immediate action</div>
+  </div>
+  <div class="stat-card" style="--accent-color:var(--accent-orange)">
+    <div class="stat-icon" style="background:rgba(255,107,53,.15);color:var(--accent-orange)"><i class="fas fa-bell"></i></div>
+    <div class="stat-label">Open Alerts</div>
+    <div class="stat-value" id="k-open">0</div>
+    <div class="stat-sub">Active threats</div>
+  </div>
+  <div class="stat-card" style="--accent-color:var(--accent-cyan)">
+    <div class="stat-icon" style="background:rgba(0,212,255,.15);color:var(--accent-cyan)"><i class="fas fa-database"></i></div>
+    <div class="stat-label">Events Today</div>
+    <div class="stat-value" id="k-today">0</div>
+    <div class="stat-sub">From all sources</div>
+  </div>
+  <div class="stat-card" style="--accent-color:var(--accent-green)">
+    <div class="stat-icon" style="background:rgba(0,255,163,.15);color:var(--accent-green)"><i class="fas fa-gauge-high"></i></div>
+    <div class="stat-label">Events / sec</div>
+    <div class="stat-value mono" id="k-eps">0.0</div>
+    <div class="stat-sub">Real-time ingestion rate</div>
+  </div>
+  <div class="stat-card" style="--accent-color:var(--accent-purple)">
+    <div class="stat-icon" style="background:rgba(168,85,247,.15);color:var(--accent-purple)"><i class="fas fa-fire"></i></div>
+    <div class="stat-label">Open Incidents</div>
+    <div class="stat-value" id="k-inc">0</div>
+    <div class="stat-sub">Under investigation</div>
+  </div>
+  <div class="stat-card" style="--accent-color:var(--accent-yellow)">
+    <div class="stat-icon" style="background:rgba(255,214,10,.15);color:var(--accent-yellow)"><i class="fas fa-network-wired"></i></div>
+    <div class="stat-label">Live Connections</div>
+    <div class="stat-value" id="k-conns">0</div>
+    <div class="stat-sub">Active network sessions</div>
+  </div>
+</div>
+
+<!-- Row 1: Timeline + Severity -->
+<div class="chart-grid">
+  <div class="card">
+    <div class="card-header">
+      <i class="fas fa-chart-area" style="color:var(--accent-green)"></i>
+      <h3>Event Timeline — Last 24h</h3>
+      <span class="badge badge-info" id="timeline-lbl">Loading…</span>
+    </div>
+    <div class="card-body"><canvas id="timelineChart" style="max-height:230px"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-header"><i class="fas fa-chart-pie" style="color:var(--accent-cyan)"></i><h3>Severity Split</h3></div>
+    <div class="card-body"><canvas id="sevChart" style="max-height:230px"></canvas></div>
+  </div>
+</div>
+
+<!-- Row 2: Attack types + Geo + System -->
+<div class="chart-grid-3">
+  <div class="card">
+    <div class="card-header"><i class="fas fa-chart-bar" style="color:var(--accent-orange)"></i><h3>Top Attack Types</h3></div>
+    <div class="card-body"><canvas id="typesChart" style="max-height:200px"></canvas></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><i class="fas fa-globe" style="color:var(--accent-purple)"></i><h3>Threat Origins</h3></div>
+    <div class="card-body" style="padding-top:10px">
+      <div id="geoList"><div style="color:var(--text-dim);font-size:.82rem;text-align:center;padding:20px">Loading…</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <i class="fas fa-microchip" style="color:var(--accent-cyan)"></i>
+      <h3>Live System</h3>
+      <span class="badge badge-low" id="sys-host" style="margin-left:auto;font-size:.65rem">—</span>
+    </div>
+    <div class="card-body">
+      <div class="sys-row">
+        <div class="sys-box">
+          <div class="sys-box-label">CPU</div>
+          <div class="sys-box-val" id="sys-cpu" style="color:var(--accent-green)">0%</div>
+          <div class="progress"><div id="cpu-bar" class="progress-bar" style="background:var(--accent-green);width:0%"></div></div>
+        </div>
+        <div class="sys-box">
+          <div class="sys-box-label">Memory</div>
+          <div class="sys-box-val" id="sys-mem" style="color:var(--accent-cyan)">0%</div>
+          <div class="progress"><div id="mem-bar" class="progress-bar" style="background:var(--accent-cyan);width:0%"></div></div>
+        </div>
+        <div class="sys-box">
+          <div class="sys-box-label">Disk</div>
+          <div class="sys-box-val" id="sys-disk" style="color:var(--accent-yellow)">0%</div>
+          <div class="progress"><div id="disk-bar" class="progress-bar" style="background:var(--accent-yellow);width:0%"></div></div>
+        </div>
+        <div class="sys-box">
+          <div class="sys-box-label">Net I/O</div>
+          <div class="sys-box-val" id="sys-net" style="color:var(--accent-purple);font-size:.85rem">—</div>
+          <div class="progress"><div id="net-bar" class="progress-bar" style="background:var(--accent-purple);width:30%"></div></div>
+        </div>
+      </div>
+      <!-- Live CPU sparkline -->
+      <div style="margin-top:14px">
+        <div style="font-size:.68rem;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">CPU History (60s)</div>
+        <canvas id="cpuSparkline" style="max-height:60px"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Row 3: Event Feed + MITRE -->
+<div class="bottom-grid">
+  <div class="card">
+    <div class="card-header">
+      <i class="fas fa-stream" style="color:var(--accent-green)"></i>
+      <h3>Live Event Feed</h3>
+      <span class="badge badge-new" id="feed-count" style="margin-left:6px">0</span>
+      <button class="btn btn-outline btn-sm" style="margin-left:auto" onclick="clearFeed()"><i class="fas fa-trash"></i></button>
+    </div>
+    <div class="card-body" style="padding:10px 14px">
+      <div style="display:grid;grid-template-columns:90px 110px 70px auto 52px;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:4px">
+        <span style="font-size:.65rem;color:var(--text-dim);text-transform:uppercase">Time</span>
+        <span style="font-size:.65rem;color:var(--text-dim);text-transform:uppercase">Type</span>
+        <span style="font-size:.65rem;color:var(--text-dim);text-transform:uppercase">Severity</span>
+        <span style="font-size:.65rem;color:var(--text-dim);text-transform:uppercase">Message</span>
+        <span style="font-size:.65rem;color:var(--text-dim);text-transform:uppercase">Score</span>
+      </div>
+      <div class="event-feed" id="eventFeed"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><i class="fas fa-sitemap" style="color:var(--accent-red)"></i><h3>MITRE ATT&CK</h3></div>
+    <div class="card-body">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px" id="mitreGrid">
+        <div style="color:var(--text-dim);font-size:.82rem">Loading…</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── State ──────────────────────────────────────────────────────────
+const MAX_FEED = 60;
+let feedItems = [];
+let cpuHistory = Array(60).fill(0);
+let timelineChart, sevChart, typesChart, cpuSparkline;
+
+// ── Chart init ─────────────────────────────────────────────────────
+function initCharts() {
+  const gridColor = 'rgba(255,255,255,.04)';
+  const baseOpts = { responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{display:false}, tooltip:{backgroundColor:'#0d1a2e',borderColor:'rgba(0,255,163,.3)',borderWidth:1} } };
+
+  timelineChart = new Chart(document.getElementById('timelineChart'), {
+    type:'line',
+    data:{ labels:[], datasets:[{ label:'Events', data:[], borderColor:'#00ffa3',
+      backgroundColor:'rgba(0,255,163,.07)', tension:.4, fill:true,
+      pointRadius:3, pointBackgroundColor:'#00ffa3' }] },
+    options:{ ...baseOpts, maintainAspectRatio:false,
+      plugins:{ ...baseOpts.plugins, legend:{display:true} },
+      scales:{ x:{grid:{color:gridColor},ticks:{font:{family:'JetBrains Mono',size:10}}},
+               y:{grid:{color:gridColor},beginAtZero:true} } }
+  });
+
+  sevChart = new Chart(document.getElementById('sevChart'), {
+    type:'doughnut',
+    data:{ labels:['Critical','High','Medium','Low','Info'],
+      datasets:[{ data:[0,0,0,0,0],
+        backgroundColor:['#ff3366','#ff6b35','#ffd60a','#00ffa3','#00d4ff'],
+        borderWidth:2, borderColor:'#04060f', hoverOffset:8 }] },
+    options:{ ...baseOpts, cutout:'70%',
+      plugins:{ legend:{display:true,position:'bottom',labels:{boxWidth:10,padding:12,font:{size:11}}} } }
+  });
+
+  typesChart = new Chart(document.getElementById('typesChart'), {
+    type:'bar',
+    data:{ labels:[], datasets:[{ data:[], backgroundColor:'rgba(255,107,53,.75)',
+      borderColor:'#ff6b35', borderWidth:1, borderRadius:4 }] },
+    options:{ ...baseOpts, indexAxis:'y',
+      scales:{ x:{grid:{color:gridColor}}, y:{grid:{display:false},ticks:{font:{size:10}}} } }
+  });
+
+  cpuSparkline = new Chart(document.getElementById('cpuSparkline'), {
+    type:'line',
+    data:{ labels: Array(60).fill(''), datasets:[{
+      data: cpuHistory, borderColor:'rgba(0,255,163,.7)',
+      backgroundColor:'rgba(0,255,163,.06)', borderWidth:1.5,
+      fill:true, tension:.3, pointRadius:0 }] },
+    options:{ responsive:true, maintainAspectRatio:false, animation:false,
+      plugins:{legend:{display:false}},
+      scales:{ x:{display:false}, y:{display:false,min:0,max:100} } }
+  });
+}
+
+// ── Fetch helpers ──────────────────────────────────────────────────
+async function fetchTimeline() {
+  const r = await fetch('/api/events/timeline').then(r=>r.json());
+  timelineChart.data.labels = r.labels;
+  timelineChart.data.datasets[0].data = r.counts;
+  timelineChart.update('none');
+  const total = r.counts.reduce((a,b)=>a+b,0);
+  document.getElementById('timeline-lbl').textContent = total.toLocaleString()+' events';
+}
+
+async function fetchSeverity() {
+  const d = await fetch('/api/events/severity').then(r=>r.json());
+  sevChart.data.datasets[0].data = ['critical','high','medium','low','info'].map(s=>d[s]||0);
+  sevChart.update('none');
+}
+
+async function fetchTypes() {
+  const d = await fetch('/api/events/types').then(r=>r.json());
+  typesChart.data.labels = d.map(x=>x.event_type.replace(/_/g,' '));
+  typesChart.data.datasets[0].data = d.map(x=>x.cnt);
+  typesChart.update('none');
+}
+
+async function fetchGeo() {
+  const d = await fetch('/api/events/geo').then(r=>r.json());
+  const flags = {US:'🇺🇸',CN:'🇨🇳',RU:'🇷🇺',DE:'🇩🇪',GB:'🇬🇧',FR:'🇫🇷',IN:'🇮🇳',
+    BR:'🇧🇷',AU:'🇦🇺',JP:'🇯🇵',KP:'🇰🇵',IR:'🇮🇷',NL:'🇳🇱',SG:'🇸🇬',
+    UA:'🇺🇦',TR:'🇹🇷',VN:'🇻🇳',NG:'🇳🇬',MX:'🇲🇽'};
+  const max = d[0]?.cnt || 1;
+  document.getElementById('geoList').innerHTML = d.slice(0,8).map(g=>`
+    <div class="geo-item">
+      <span style="font-size:1.1rem">${flags[g.geo_country]||'🌐'}</span>
+      <div style="flex:1">
+        <div>${g.geo_country} <span style="color:var(--text-dim);font-size:.7rem">${g.geo_city||''}</span></div>
+        <div class="progress" style="margin-top:4px">
+          <div class="progress-bar" style="background:var(--accent-cyan);width:${Math.round(g.cnt/max*100)}%"></div>
+        </div>
+      </div>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--accent-cyan);min-width:32px;text-align:right">${g.cnt}</span>
+    </div>`).join('')||'<div style="color:var(--text-dim);font-size:.8rem;padding:8px">No geo data yet</div>';
+}
+
+async function fetchMitre() {
+  const d = await fetch('/api/hunting/mitre').then(r=>r.json());
+  if (!d.length) { document.getElementById('mitreGrid').innerHTML='<div style="color:var(--text-dim);font-size:.82rem">No data yet</div>'; return; }
+  const max = Math.max(...d.map(x=>x.cnt));
+  document.getElementById('mitreGrid').innerHTML = d.map(x=>{
+    const tactic = x.mitre_tactic.split(' - ')[1]||x.mitre_tactic;
+    const pct = Math.round(x.cnt/max*100);
+    const col = x.cnt>max*.7?'var(--accent-red)':x.cnt>max*.4?'var(--accent-orange)':'var(--accent-cyan)';
+    return `<div class="mitre-cell">
+      <div class="mitre-name">${tactic}</div>
+      <div class="mitre-count" style="color:${col}">${x.cnt}</div>
+      <div class="progress" style="margin-top:5px"><div class="progress-bar" style="background:${col};width:${pct}%"></div></div>
+    </div>`;
+  }).join('');
+}
+
+async function fetchInitEvents() {
+  const d = await fetch('/api/events?limit=40').then(r=>r.json());
+  feedItems = d;
+  renderFeed();
+}
+
+async function fetchStats() {
+  const d = await fetch('/api/stats').then(r=>r.json());
+  applyStats(d);
+}
+
+function applyStats(d) {
+  document.getElementById('k-critical').textContent = d.critical_alerts||0;
+  document.getElementById('k-open').textContent     = d.open_alerts||0;
+  document.getElementById('k-today').textContent    = (d.events_today||0).toLocaleString();
+  document.getElementById('k-eps').textContent      = (d.eps||0).toFixed(1);
+  document.getElementById('k-inc').textContent      = d.open_incidents||0;
+  if (d.live) document.getElementById('k-conns').textContent = d.live.connections||0;
+}
+
+// ── Feed ───────────────────────────────────────────────────────────
+function renderFeed() {
+  document.getElementById('feed-count').textContent = feedItems.length;
+  document.getElementById('eventFeed').innerHTML = feedItems.slice(0,MAX_FEED).map((e,i)=>{
+    const sc = e.threat_score||0;
+    const col = scoreColor(sc);
+    return `<div class="ev${i===0?' event-row-new':''}">
+      <span class="ev-time">${fmtTime(e.timestamp)}</span>
+      <span class="ev-type" title="${e.event_type}">${(e.event_type||'').replace(/_/g,' ')}</span>
+      <span>${severityBadge(e.severity||'info')}</span>
+      <span class="ev-msg" title="${e.message}">${e.message||''}</span>
+      <span class="score-pill" style="background:${col}22;color:${col};border:1px solid ${col}55">${sc}</span>
+    </div>`;
+  }).join('');
+}
+function clearFeed() { feedItems=[]; renderFeed(); }
+
+// ── System update (every 1 second from system_tick) ────────────────
+window.onSystemTick = (d) => {
+  const cpu = d.cpu||0, mem = d.memory||0, disk = d.disk||0;
+  document.getElementById('sys-cpu').textContent  = `${cpu}%`;
+  document.getElementById('sys-mem').textContent  = `${mem}%`;
+  document.getElementById('sys-disk').textContent = `${disk}%`;
+  document.getElementById('sys-host').textContent = d.hostname||'—';
+  const cpuCol  = cpu>80?'var(--accent-red)':cpu>60?'var(--accent-yellow)':'var(--accent-green)';
+  const memCol  = mem>85?'var(--accent-red)':mem>70?'var(--accent-yellow)':'var(--accent-cyan)';
+  const diskCol = disk>90?'var(--accent-red)':disk>75?'var(--accent-yellow)':'var(--accent-yellow)';
+  document.getElementById('sys-cpu').style.color  = cpuCol;
+  document.getElementById('sys-mem').style.color  = memCol;
+  document.getElementById('sys-disk').style.color = diskCol;
+  document.getElementById('cpu-bar').style.cssText  = `background:${cpuCol};width:${cpu}%`;
+  document.getElementById('mem-bar').style.cssText  = `background:${memCol};width:${mem}%`;
+  document.getElementById('disk-bar').style.cssText = `background:${diskCol};width:${disk}%`;
+  // CPU sparkline
+  cpuHistory.push(cpu); cpuHistory.shift();
+  cpuSparkline.data.datasets[0].data = [...cpuHistory];
+  cpuSparkline.update('none');
+};
+
+window.onNetworkTick = (d) => {
+  const fmt = (b)=>{
+    if(b>1048576) return `${(b/1048576).toFixed(1)} MB/s`;
+    if(b>1024)    return `${(b/1024).toFixed(1)} KB/s`;
+    return `${Math.round(b)} B/s`;
+  };
+  document.getElementById('sys-net').textContent = `↓${fmt(d.in_rate||0)} ↑${fmt(d.out_rate||0)}`;
+  document.getElementById('net-bar').style.width  = `${Math.min(100,(d.in_rate||0)/1000000*10)}%`;
+  document.getElementById('k-conns').textContent = d.connections||0;
+};
+
+// ── WebSocket handlers ─────────────────────────────────────────────
+window.onStatsUpdate = applyStats;
+
+window.onNewEvent = (evt) => {
+  feedItems.unshift(evt);
+  if(feedItems.length>MAX_FEED) feedItems.pop();
+  renderFeed();
+};
+
+window.onInitData = (d) => {
+  if(d.recent_events) { feedItems = d.recent_events; renderFeed(); }
+  if(d.stats) applyStats(d.stats);
+  if(d.system) window.onSystemTick(d.system);
+};
+
+// Register network_tick and system_tick on socket
+socket.on('system_tick',  (d) => { if(window.onSystemTick)  window.onSystemTick(d);  });
+socket.on('network_tick', (d) => { if(window.onNetworkTick) window.onNetworkTick(d); });
+
+window.refreshData = async () => {
+  await Promise.all([fetchTimeline(),fetchSeverity(),fetchTypes(),fetchGeo(),fetchMitre(),fetchStats()]);
+};
+
+// ── Boot ───────────────────────────────────────────────────────────
+initCharts();
+fetchStats();
+fetchInitEvents();
+fetchTimeline();
+fetchSeverity();
+fetchTypes();
+fetchGeo();
+fetchMitre();
+
+// Periodic refresh of charts
+setInterval(fetchTimeline,  15000);
+setInterval(fetchSeverity,  10000);
+setInterval(fetchTypes,     20000);
+setInterval(fetchGeo,       30000);
+setInterval(fetchMitre,     30000);
+setInterval(fetchStats,      5000);
+</script>
+{% endblock %}
